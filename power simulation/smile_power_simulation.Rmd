@@ -1,0 +1,706 @@
+---
+title: "Power simulation for smile"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Load libraries and data
+```{r setup, include= F}
+# load libraries
+library(tidyverse)
+library(simr)
+library(lmerTest)
+library(broom.mixed)
+library(emmeans)
+library(ggplot2)
+library(gridExtra)
+library(parallel)
+
+# turn off scientific notation
+options(scipen = 999)
+
+# set seed
+set.seed(1967)
+```
+
+```{r}
+# load data
+DF <- readRDS(here("power simulation", "DF.l.full.rds")) %>%
+  
+  # focus on conditions being replicated
+  filter(image == 'present', 
+         condition == "mimicry",
+         trial != 'fil.1',
+         trial != 'fil.4') %>% 
+  
+  # refactor trial
+  mutate(trial = if_else(trial == "neutr",
+                         "a.neutr",
+                         "b.happy"),
+           trial = factor(trial)) %>% 
+  
+  # select relevant variables
+  select(ResponseId, trial, happiness)
+```
+
+# Fit model based on pilot data
+```{r}
+pilot.hap <-
+    lmer(happiness ~ trial +
+         (1 | ResponseId),
+         data = DF)
+```
+
+# Create data simulation function
+```{r}
+DataSim <- function(n.sub = 100,
+                    n.trial = 2, # participants will complete two trials (happy and neutral pose)
+                    fixef = pilot.hap@beta,
+                    VarCorr = VarCorr(pilot.hap),
+                    sigma = sigma(pilot.hap),
+                    stimulus, # label for stimuli valence
+                    repetition, # label for repetition condition
+                    threat){ # label for threat condition
+  
+  # create empty dataframe
+  dat <- matrix(data = NA,
+                nrow = n.sub * n.trial, 
+                ncol = 0) %>% 
+    data.frame()
+    
+  # create level 2 vector
+  dat$sub = rep(x = 1 : n.sub, 
+                each = n.trial) %>% 
+    as.factor()
+  
+  # create level 1 vectors 
+  dat$trial = rep(x = levels(DF$trial),
+                  each = n.trial / 2,
+                  times = n.sub) %>% 
+    as.factor()
+    
+  # simulate happiness and anger scores
+  dat$hap <-
+    # fit lmer
+    makeLmer(formula = y ~ trial + (1 | sub),
+             fixef = fixef,
+             VarCorr = VarCorr,
+             sigma = sigma,
+             data = dat) %>% 
+    
+    # use lmer to simulate happiness scores
+    doSim()
+  
+  # add condition labels
+  dat$stimulus = stimulus
+  dat$repetition = repetition
+  dat$threat = threat
+  
+  return(dat)
+  }
+```
+
+# Function that simulates a dataframe with the main-effect of pose
+```{r}
+MainSim <- function(n.sub = 500){
+  c.1 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2, 
+            fixef = pilot.hap@beta, # simple effect of pose = pilot effect
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap),  # from previous work
+            # conditions: positive stimulus, no repetition, no threat
+            stimulus = 'pos',
+            repetition = 'once',
+            threat = 'false') 
+  
+  c.2 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2, # number of trials = 2
+            fixef = pilot.hap@beta, # effect of pose = pilot effect
+            VarCorr = VarCorr(pilot.hap), # variance = pilot variance
+            sigma = sigma(pilot.hap), # sigma = pilot sigma
+            # conditions: negative stimulus, no repetition, no threat
+            stimulus = 'neg',
+            repetition = 'once',
+            threat = 'false')
+  
+  c.3 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2,
+            fixef = pilot.hap@beta, # simple effect of pose = pilot effect
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+            # conditions: positive stimulus, multiple repetitions, no threat
+            stimulus = 'pos',
+            repetition = 'multi',
+            threat = 'false')
+
+  c.4 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2,
+            fixef = pilot.hap@beta, # simple effect of pose = pilot effect
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+            # conditions: negative stimulus, multiple repetitions, no threat
+            stimulus = 'neg',
+            repetition = 'multi',
+            threat = 'false')
+  
+  c.5 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2, 
+            fixef = pilot.hap@beta, # simple effect of pose = pilot effect
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap),  # from previous work
+            # conditions: positive stimulus, no repetition, no threat
+            stimulus = 'pos',
+            repetition = 'once',
+            threat = 'true') 
+  
+  c.6 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2, # number of trials = 2
+            fixef = pilot.hap@beta, # effect of pose = pilot effect
+            VarCorr = VarCorr(pilot.hap), # variance = pilot variance
+            sigma = sigma(pilot.hap), # sigma = pilot sigma
+            # conditions: negative stimulus, no repetition, no threat
+            stimulus = 'neg',
+            repetition = 'once',
+            threat = 'true')
+  
+  c.7 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2,
+            fixef = pilot.hap@beta, # simple effect of pose = pilot effect
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+            # conditions: positive stimulus, multiple repetitions, no threat
+            stimulus = 'pos',
+            repetition = 'multi',
+            threat = 'true')
+
+  c.8 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2,
+            fixef = pilot.hap@beta, # simple effect of pose = pilot effect
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+            # conditions: negative stimulus, multiple repetitions, no threat
+            stimulus = 'neg',
+            repetition = 'multi',
+            threat = 'true')
+  
+  # rbind
+  df.sim <- rbind(c.1, c.2, c.3, c.4,
+                  c.5, c.6, c.7, c.8)
+  
+  # add an identification variable for each subject
+  df.sim$sub <- rep(1:(8*n.sub), each = 2)
+  
+  return(df.sim)
+}
+```
+
+# Function that simulates a data frame with a single two-way interaction effect
+```{r}
+TwoWaySim <- function(n.sub = 500){
+  c.1 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2, 
+            fixef = pilot.hap@beta, # simple effect of pose = pilot effect
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+            # conditions: positive stimulus, no repetition, no threat
+            stimulus = 'pos',
+            repetition = 'once',
+            threat = 'false')
+  c.2 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2,
+            fixef = c(pilot.hap@beta[1], 
+                      0), # simple effect of pose = 0
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+            # conditions: negative stimulus, no repetition, no threat
+            stimulus = 'neg',
+            repetition = 'once',
+            threat = 'false')
+  
+  c.3 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2,
+            fixef = pilot.hap@beta, # simple effect of pose = 0
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+             # conditions: positive stimulus, multiple repetition, no threat
+            stimulus = 'pos',
+            repetition = 'multi',
+            threat = 'false')
+
+  c.4 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2,
+            fixef = c(pilot.hap@beta[1],
+                      0), # simple effect of pose = 0
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+            # conditions: negative stimulus, multiple repetition, no threat
+            stimulus = 'neg',
+            repetition = 'multi',
+            threat = 'false')
+
+  c.5 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2, 
+            fixef = pilot.hap@beta, # simple effect of pose = pilot effect
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+            # conditions: positive stimulus, no repetition, with threat
+            stimulus = 'pos',
+            repetition = 'once',
+            threat = 'true')
+  c.6 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2,
+            fixef = c(pilot.hap@beta[1], 
+                      0), # simple effect of pose = 0
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+            # conditions: negative stimulus, no repetition, with threat
+            stimulus = 'neg',
+            repetition = 'once',
+            threat = 'true')
+  
+  c.7 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2,
+            fixef = pilot.hap@beta, # simple effect of pose = 0
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+             # conditions: positive stimulus, multiple repetition, with threat
+            stimulus = 'pos',
+            repetition = 'multi',
+            threat = 'true')
+
+  c.8 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2,
+            fixef = c(pilot.hap@beta[1],
+                      0), # simple effect of pose = 0
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+            # conditions: negative stimulus, multiple repetition, with threat
+            stimulus = 'neg',
+            repetition = 'multi',
+            threat = 'true')
+  
+  # rbind
+  df.sim <- rbind(c.1, c.2, c.3, c.4,
+                  c.5, c.6, c.7, c.8)
+  
+  # add an identification variable for each subject
+  df.sim$sub <- rep(1:(8*n.sub), each = 2)
+  
+  return(df.sim)
+}
+```
+
+#  Function that simulates a data frame with a single three way interaction effect
+```{r}
+ThreeWaySim <- function(n.sub = 500){
+  c.1 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2, 
+            fixef = pilot.hap@beta, # simple effect of pose = pilot effect
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+            # conditions: positive stimulus, no repetition, no threat
+            stimulus = 'pos',
+            repetition = 'once',
+            threat = 'false')
+  c.2 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2,
+            fixef = c(pilot.hap@beta[1], 
+                      0), # simple effect of pose = 0
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+            # conditions: negative stimulus, no repetition, no threat
+            stimulus = 'neg',
+            repetition = 'once',
+            threat = 'false')
+  
+  c.3 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2,
+            fixef = pilot.hap@beta, # simple effect of pose = 0
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+             # conditions: positive stimulus, multiple repetition, no threat
+            stimulus = 'pos',
+            repetition = 'multi',
+            threat = 'false')
+
+  c.4 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2,
+            fixef = c(pilot.hap@beta[1],
+                      0), # simple effect of pose = 0
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+            # conditions: negative stimulus, multiple repetition, no threat
+            stimulus = 'neg',
+            repetition = 'multi',
+            threat = 'false')
+
+  c.5 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2, 
+            fixef =  c(pilot.hap@beta[1], 
+                      0), # simple effect of pose = 0
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+            # conditions: positive stimulus, no repetition, with threat
+            stimulus = 'pos',
+            repetition = 'once',
+            threat = 'true')
+  c.6 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2,
+            fixef = c(pilot.hap@beta[1], 
+                      0), # simple effect of pose = 0
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+            # conditions: negative stimulus, no repetition, with threat
+            stimulus = 'neg',
+            repetition = 'once',
+            threat = 'true')
+  
+  c.7 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2,
+            fixef =  c(pilot.hap@beta[1], 
+                      0), # simple effect of pose = 0
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+             # conditions: positive stimulus, multiple repetition, with threat
+            stimulus = 'pos',
+            repetition = 'multi',
+            threat = 'true')
+
+  c.8 <-
+    DataSim(n.sub = n.sub, 
+            n.trial = 2,
+            fixef = c(pilot.hap@beta[1],
+                      0), # simple effect of pose = 0
+            VarCorr = VarCorr(pilot.hap), # from previous work
+            sigma = sigma(pilot.hap), # from previous work
+            # conditions: negative stimulus, multiple repetition, with threat
+            stimulus = 'neg',
+            repetition = 'multi',
+            threat = 'true')
+  
+  # rbind
+  df.sim <- rbind(c.1, c.2, c.3, c.4,
+                  c.5, c.6, c.7, c.8)
+  
+  # add an identification variable for each subject
+  df.sim$sub <- rep(1:(8*n.sub), each = 2)  
+  return(df.sim)
+}
+```
+
+# Power simulation function that returns whether the global and simple effects of interest were significant
+```{r}
+powSim <- function (df.sim) {
+  
+  # fit model
+  sim.m <-
+    lmer(hap ~ trial * stimulus * repetition * threat + 
+           (1 | sub),
+         data = df.sim)
+  
+  # extract global effects of interest and determine significance
+  global_eff <- sim.m %>% 
+    tidy(effects = 'fixed') %>%
+    mutate(n = length(unique(df.sim$sub)),
+           test = "global",
+           condition = term,
+           sig = ifelse(p.value < 0.05,
+                        1, 0)) %>%
+    filter(condition %in% 
+             c(
+               # main effects
+               "trialb.happy", "stimuluspos", "repetitiononce", "threatfalse",
+               # two-way interactions
+               "trialb.happy:stimuluspos", "trialb.happy:threatfalse", 
+               #three-way interaction
+               "trialb.happy:stimuluspos:threatfalse"
+               )) %>%
+    select(n, test, condition, sig)
+  
+  # test simple effects
+  EMM <- emmeans(sim.m,
+              specs=pairwise~trial|stimulus:repetition:threat,
+              level=0.95,
+              adjust="tukey",
+              pbkrtest.limit = 8000)
+  
+  # evaluate simple effects
+  EMM_summ <- summary(EMM, infer=TRUE)$contrasts %>%
+  mutate(condition = paste0(stimulus, repetition, threat))
+  
+  # extract simple effects of interest and determine significance
+  simple_eff <- EMM_summ %>%
+    mutate(n = length(unique(df.sim$sub)),
+           test = "simple",
+           sig = ifelse(p.value < 0.05,
+                        1, 0)) %>%
+    select(n, test, condition, sig)
+  
+  # bind the global and simple effects
+  power_table <- rbind(global_eff, simple_eff)
+  
+  #return the effects power table
+  return(power_table)
+}
+```
+
+
+# Power plot for the Main Effect model
+```{r}
+# track simulation time
+start_time <- Sys.time()
+
+# simulate power for the main effect model
+# expected result: all simple effects are significant
+
+iterations <- 1000 # number of iterations for the power analysis
+n_list <- c(25, 50, 100, 150, 200) # sample size list for power analysis
+
+
+#Declare the number of cores
+numCores <- 20 
+#Create cluster
+cl <- makeCluster(numCores)
+#Export any variables you might need in the computation
+##Tips: export all variables and functions you will use in the parLapply function, as well as the arguments (if using large data frames, remove any unnecessary columns)
+##exporting will take some time and increases memory use, but the parallel processing will run much faster. 
+clusterExport(cl, varlist = c("iterations", "n_list", "DF", "pilot.hap", "powSim", "MainSim", "TwoWaySim", "ThreeWaySim", "DataSim"))
+#Load the libraries required for the computation in all cores
+clusterEvalQ(cl, { library('tidyverse')
+library('simr')
+library('lmerTest')
+library('broom.mixed')
+library('emmeans') })
+
+
+# apply the power simulation function across the sample size list, according to the number of iterations, for the Main Effect model 
+pwr.sim.main <- 
+      parLapply(cl, n_list, function(n){
+        replicate(iterations, 
+            powSim(MainSim(n.sub = n)),
+            simplify = F) %>% 
+        # bind output
+         bind_rows()
+        }) %>%
+  bind_rows
+
+# track simulation time
+print(execution_time <- Sys.time() - start_time)
+
+# Optional: save or retrieve data from power simulation
+# saveRDS(pwr.sim.main, "pwr_sim_main.Rds")  
+# pwr.sim.main <- readRDS("pwr_sim_main.Rds")
+
+# filter effects of interest and calculate power
+main_df <- pwr.sim.main %>% 
+  filter(condition %in% c(
+  "posoncefalse",
+  "negoncefalse",
+  "posmultifalse",
+  "negmultifalse",
+  "posoncetrue",
+  "negoncetrue",
+  "posmultitrue",
+  "negmultitrue")) %>%
+  group_by(n, test, condition) %>%
+  # power = proportion of significant tests
+  summarise(power = sum(sig) / n()) %>%
+  mutate(condition = case_when(
+    condition == "posoncefalse" ~ "Positive stimulus / No repetition / No threat",
+    condition == "negoncefalse" ~ "Negative stimulus / No repetition / No threat",
+   condition == "posmultifalse" ~ "Positive stimulus / Multiple repetitions / No threat",
+   condition == "negmultifalse" ~ "Negative stimulus / Multiple repetitions / No threat",
+   condition == "posoncetrue" ~ "Positive stimulus / No repetition / With threat",
+    condition == "negoncetrue" ~ "Negative stimulus / No repetition / With threat",
+   condition == "posmultitrue" ~ "Positive stimulus / Multiple repetitions / With threat",
+   condition == "negmultitrue" ~ "Negative stimulus / Multiple repetitions / With threat")) %>%
+  rename(Condition = condition)
+
+# plot the power curve for the effects of interest
+main_plot <- ggplot(main_df, aes(x = n, y = power, color = Condition, group = Condition)) +
+  geom_line(size = 1, alpha = 0.5) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 0.95, linetype = "dotted", color = "black") +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_minimal() +
+  labs(
+    title = "a) Main Effect Model",   # Plot title
+    x = "Total Sample Size",                # X-axis label
+    y = "Power"
+    )
+print(main_plot)
+```
+
+# Power plot for the single two-way interaction effect model
+```{r}
+# expected result: simple effects are significant when feedback is positive, but not when feedback is negative
+
+# apply the power simulation function across the sample size list, according to the number of iterations, for the full moderation interaction effect model
+pwr.sim.twoway <- parLapply(cl, n_list, function(n){
+        replicate(iterations, 
+            powSim(TwoWaySim(n.sub = n)),
+            simplify = F) %>% 
+        # bind output
+         bind_rows()
+        }) %>%
+  bind_rows()
+
+# Optional: save or retrieve data from power simulation
+# saveRDS(pwr.sim.twoway, "pwr_sim_twoway.Rds")  
+# pwr.sim.twoway <- readRDS("pwr_sim_twoway.Rds")
+
+# filter effects of interest and calculate power
+twoway_df <- pwr.sim.twoway %>% 
+  filter(condition %in% c(
+  "posoncefalse",
+  "negoncefalse",
+  "posmultifalse",
+  "negmultifalse",
+  "posoncetrue",
+  "negoncetrue",
+  "posmultitrue",
+  "negmultitrue")) %>%
+  group_by(n, test, condition) %>%
+  # power = proportion of significant tests
+  summarise(power = sum(sig) / n()) %>%
+  mutate(condition = case_when(
+    condition == "posoncefalse" ~ "Positive stimulus / No repetition / No threat",
+    condition == "negoncefalse" ~ "Negative stimulus / No repetition / No threat",
+   condition == "posmultifalse" ~ "Positive stimulus / Multiple repetitions / No threat",
+   condition == "negmultifalse" ~ "Negative stimulus / Multiple repetitions / No threat",
+   condition == "posoncetrue" ~ "Positive stimulus / No repetition / With threat",
+    condition == "negoncetrue" ~ "Negative stimulus / No repetition / With threat",
+   condition == "posmultitrue" ~ "Positive stimulus / Multiple repetitions / With threat",
+   condition == "negmultitrue" ~ "Negative stimulus / Multiple repetitions / With threat"))  %>%
+  rename(Condition = condition)
+
+# plot the power curve for the effects of interest
+twoway_plot <- ggplot(twoway_df, aes(x = n, y = power, color = Condition, group = Condition)) +
+  geom_line(size = 1, alpha = 0.5) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 0.95, linetype = "dotted", color = "black") +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_minimal() +
+  labs(
+    title = "b) Two-way Interaction Model",   # Plot title
+    x = "Total Sample Size",                # X-axis label
+    y = "Power"
+    ) 
+print(twoway_plot)
+```
+
+# Power plot for the single Three-way Interaction Effect Model
+```{r}
+# expected result: all simple effects significant, but power when feedback is positive is greater than when feedback is negative
+
+# apply the power simulation function across the sample size list, according to the number of iterations, for the partial moderation interaction effect model
+pwr.sim.threeway <- parLapply(cl, n_list, function(n){
+        replicate(iterations, 
+            powSim(ThreeWaySim(n.sub = n)),
+            simplify = F) %>% 
+        # bind output
+         bind_rows()
+        }) %>%
+  bind_rows()
+
+stopCluster(cl)
+
+# Optional: save or retrieve data from power simulation
+# saveRDS(pwr.sim.threeway, "pwr_sim_threeway.Rds")  
+# pwr.sim.threeway <- readRDS("pwr_sim_threeway.Rds")
+
+# filter effects of interest and calculate power
+threeway_df <- pwr.sim.threeway %>% 
+  group_by(n, test, condition) %>%
+  filter(condition %in% c(
+  "posoncefalse",
+  "negoncefalse",
+  "posmultifalse",
+  "negmultifalse",
+  "posoncetrue",
+  "negoncetrue",
+  "posmultitrue",
+  "negmultitrue")) %>%
+  group_by(n, test, condition) %>%
+  # power = proportion of significant tests
+  summarise(power = sum(sig) / n()) %>%
+  mutate(condition = case_when(
+    condition == "posoncefalse" ~ "Positive stimulus / No repetition / No threat",
+    condition == "negoncefalse" ~ "Negative stimulus / No repetition / No threat",
+   condition == "posmultifalse" ~ "Positive stimulus / Multiple repetitions / No threat",
+   condition == "negmultifalse" ~ "Negative stimulus / Multiple repetitions / No threat",
+   condition == "posoncetrue" ~ "Positive stimulus / No repetition / With threat",
+    condition == "negoncetrue" ~ "Negative stimulus / No repetition / With threat",
+   condition == "posmultitrue" ~ "Positive stimulus / Multiple repetitions / With threat",
+   condition == "negmultitrue" ~ "Negative stimulus / Multiple repetitions / With threat"))  %>%
+  rename(Condition = condition)
+
+# plot the power curve for the effects of interest
+threeway_plot <- ggplot(threeway_df, aes(x = n, y = power, color = Condition, group = Condition)) +
+  geom_line(size = 1, alpha = 0.5) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 0.95, linetype = "dotted", color = "black") +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_minimal() +
+  labs(
+    title = "c) Three-way Interaction Model",   # Plot title
+    x = "Total Sample Size",                # X-axis label
+    y = "Power"
+    ) 
+print(threeway_plot)
+
+# record simulation end time and print total execution time
+# end_time <- Sys.time()
+# print(execution_time <- end_time - start_time)
+
+```
+
+# Combine plots in a single figure
+```{r}
+# function to extract legend box from the plot
+get_legend <- function(myplot) {
+  tmp <- ggplotGrob(myplot + theme(legend.position = "right")) # transform into a graphical object and determine the legend position
+  legend <- tmp$grobs[which(sapply(tmp$grobs, function(x) x$name) == "guide-box")] # extract the legend grob
+  return(legend[[1]])
+}
+
+# get the legend from the main plot
+shared_legend <- get_legend(main_plot)
+
+# remove legend from individual plots
+main_plot <- main_plot + theme(legend.position = "none")
+twoway_plot <- twoway_plot + theme(legend.position = "none")
+threeway_plot <- threeway_plot + theme(legend.position = "none")
+
+# combine plots and include the shared legend
+combined_plot <- grid.arrange(main_plot,
+          twoway_plot,
+          threeway_plot,
+          shared_legend,
+          ncol = 2,
+          top = "Power curves from the Monte Carlo simulations")
+```

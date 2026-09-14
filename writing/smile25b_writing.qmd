@@ -1,0 +1,353 @@
+---
+title: "Smiling your way to happiness or misery? Experimental tests of competing perspectives [Registered Report - stage II]"
+shorttitle: "Smiling and happiness"
+abstract: "Researchers and lay people alike have long been interested in whether people can make themselves feel happier if they simply fake a smile. Thus far, two largely disconnected research communities have provided seemingly competing answers to this question, with (a) emotion embodiment researchers observing positive causal links in experimental contexts, and (b) emotion labor researchers observing negative associations in real-world work contexts. In the present work, we conducted a pre-registered conceptual extension of the largest experimental demonstration of the positive effects of posed smiles on mood, focusing on three factors that may explain why such effects fail to generalize to real-world work contexts. More specifically, we tested whether posed smiles fail to improve mood (1) in negative contexts, (2) when performed repeatedly, and/or (3) when performed to avoid punishment. Ultimately, results did not support any one hypothesis. In negative contexts, participants reported higher levels of happiness after posing smiles vs. expressing themselves naturally. However, such effects were virtually nil when participants posed smiles repeatedly. Furthermore, in positive contexts, posed smiles generally led to *lower* self-reported happiness. In other words, even though posed smiles can improve mood in narrow experimental contexts, their effects appear far more negative in conditions better resembling real-world emotion labor."
+keywords: [emotion, emotion embodiment, emotion labor, facial feedback]
+bibliography: references.bib
+floatsintext: true
+numbered-lines: false
+mask: false
+draft-date: false
+meta-analysis: false
+nocite: |
+  @humeai2025
+format:
+  apaquarto-docx: default
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+library(tidyverse)
+library(BayesFactor)
+
+# Read processed data and the analysis objects exported by the analysis scripts
+df <- read_csv("../data/smile25b_processed_data.csv", show_col_types = FALSE)
+
+happy_anova <- readRDS("../data/main_analysis/smile25b_happy_results_anova.Rds")
+happy_simple <- readRDS("../data/main_analysis/smile25b_happy_results_simple.Rds")
+
+burnout_simple <- readRDS("../data/secondary_analysis/smile25b_Burnout_results_simple.Rds")
+swl_simple <- readRDS("../data/secondary_analysis/smile25b_SWL_results_simple.Rds")
+fear_simple <- readRDS("../data/secondary_analysis/smile25b_fear_results_simple.Rds")
+anger_simple <- readRDS("../data/secondary_analysis/smile25b_anger_results_simple.Rds")
+
+# Reporting helpers
+
+## Round to a fixed number of decimals
+num <- function(x, digits = 2) formatC(x, format = "f", digits = digits)
+
+## Drop the leading zero, as in APA style
+drop_zero <- function(x) sub("^(-?)0", "\\1", x)
+
+## Format a single p value
+fmt_p <- function(p) if (p < .001) "< .001" else paste("=", drop_zero(num(p, 3)))
+
+## Format a Bayes factor, reported as an inequality once it exceeds 100
+fmt_bf <- function(bf) if (bf > 100) "> 100" else paste("=", num(bf))
+
+## Bounds for "all X < bound" and "all X > bound" claims.
+## Rounded outward so that the claim stays true.
+bound_max <- function(x, digits = 2) num(ceiling(max(x) * 10^digits) / 10^digits, digits)
+bound_min <- function(x, digits = 2) num(floor(min(x) * 10^digits) / 10^digits, digits)
+
+## Pull one condition out of a simple effects table
+cell <- function(results, ctx, thr, rep) {
+    results %>% filter(context == ctx, threat == thr, repetition == rep)
+}
+
+# Manipulation check: did participants smile more when asked to pose a smile?
+au12 <- df %>%
+    select(AU12_scalar_smile, AU12_scalar_natura) %>%
+    drop_na()
+
+au12_test <- t.test(au12$AU12_scalar_smile, au12$AU12_scalar_natura, paired = TRUE)
+au12_bf <- extractBF(ttestBF(au12$AU12_scalar_smile, au12$AU12_scalar_natura, paired = TRUE))$bf
+
+au12_desc <- au12 %>%
+    summarise(
+        smile_m    = mean(AU12_scalar_smile),   smile_sd   = sd(AU12_scalar_smile),
+        natural_m  = mean(AU12_scalar_natura),  natural_sd = sd(AU12_scalar_natura)
+    )
+
+# Demographics
+n_total <- nrow(df)
+age_m <- mean(df$Age, na.rm = TRUE)
+age_sd <- sd(df$Age, na.rm = TRUE)
+
+## Gender and ethnicity percentages, with remaining categories collapsed into "Other"
+gender_pct <- df %>%
+    mutate(group = if_else(Gender %in% c("Male", "Female"), Gender, "Other")) %>%
+    count(group) %>%
+    mutate(pct = n / n_total * 100) %>%
+    select(group, pct) %>%
+    deframe()
+
+ethnicity_pct <- df %>%
+    mutate(group = if_else(Ethnicity %in% c("White", "Black", "Mixed", "Asian"), Ethnicity, "Other")) %>%
+    count(group) %>%
+    mutate(pct = n / n_total * 100) %>%
+    select(group, pct) %>%
+    deframe()
+
+## Percentage whose posed smiles exceeded the AU12 compliance threshold
+compliance_pct <- mean(df$face_compliance_scalar, na.rm = TRUE) * 100
+
+# Self-reported happiness by emotional context, collapsing across pose
+happy_by_context <- df %>%
+    pivot_longer(c(SP_DEQ_happy_total, NP_DEQ_happy_total), values_to = "happy") %>%
+    group_by(context) %>%
+    summarise(M = mean(happy, na.rm = TRUE), SD = sd(happy, na.rm = TRUE))
+
+happy_positive <- happy_by_context %>% filter(context == "positive")
+happy_negative <- happy_by_context %>% filter(context == "negative")
+
+# ANOVA terms reported in the Results
+happy_anova <- happy_anova %>%
+    rename(F_value = `F value`, p_value = `Pr(>F)`)
+
+anova_pose <- happy_anova %>% filter(term == "pose")
+anova_context <- happy_anova %>% filter(term == "context")
+anova_three_way <- happy_anova %>% filter(term == "pose:context:repetition")
+
+# 95% CIs for the unstandardized pose differences
+happy_simple <- happy_simple %>%
+    mutate(
+        ci_low  = estimate - qt(.975, df) * SE,
+        ci_high = estimate + qt(.975, df) * SE
+    )
+
+# Happiness conditions reported individually
+pos_one_free <- cell(happy_simple, "positive", "No threat", "one")
+neg_one_free <- cell(happy_simple, "negative", "No threat", "one")
+neg_one_threat <- cell(happy_simple, "negative", "Threat", "one")
+
+# Happiness conditions reported as a group
+pos_other <- happy_simple %>%
+    filter(context == "positive", !(threat == "No threat" & repetition == "one"))
+
+neg_ten <- happy_simple %>%
+    filter(context == "negative", repetition == "ten")
+
+# Burnout and satisfaction with life, reported together
+wellbeing <- bind_rows(burnout_simple, swl_simple)
+
+# Fear and anger conditions
+fear_neg_ten <- fear_simple %>% filter(context == "negative", repetition == "ten")
+
+anger_negative <- anger_simple %>% filter(context == "negative")
+anger_pos_one_free <- cell(anger_simple, "positive", "No threat", "one")
+anger_pos_ten_threat <- cell(anger_simple, "positive", "Threat", "ten")
+```
+
+"You'll find that life is still worthwhile, if you just smile" -- Nat King Cole (1954)
+
+"Pretending to be happy is almost like being happy. Until you remember that you're only pretending. Then you're sad. Really sad." -- Brittainy C. Cherry (2014)
+
+Researchers, artists, and lay people alike have long wondered if people can make themselves feel happier if they simply fake a smile [@coles2019meta]. In addition to its allure as a cheap and scalable intervention for promoting happiness, such an idea connects to fundamental questions about the nature of emotion. For over a century, emotion embodiment researchers have posited that peripheral nervous system activity causally shapes emotion-related processes, including the subjective experience of emotion itself [@barrett2017; @cacioppo1992; @damasio2013; @feldman2024; @niedenthal2007; @james1884; @james1894; @scherer2019; @tomkins1962; @wood2016]. To evaluate such possibilities, many researchers have conducted experiments with an easy-to-manipulate component of the peripheral nervous system: facial musculature. For example, in a study ostensibly about how muscle movements influence galvanic skin response, @coles2023artifact [Study 1] found that participants reported higher levels of happiness immediately after completing muscle movement trials that configured their face into a smile vs. scowl. Similar patterns have been observed in (1) multiple pre-registered replications [@baker2025; @coles2023artifact; @noah2018; but see @wagenmakers2016], (2) a pre-registered meta-analysis of nearly 50 years of research [@coles2019meta], and (3) a large-scale adversarial collaboration conducted across 19 countries [@coles2022].
+
+The emotion embodiment literature provides both a theoretical and empirical rationale for suggesting that people can make themselves feel happier if they "just smile" [@cole1954]. However, if true, it is remarkable that people are generally *least happy* in jobs that notoriously require such behaviors, such as food and retail services [@smith2007]. In actuality, researchers who study these contexts often describe the negative effects of forcing one's emotional expression to match the demands of a job [@hochschild1979]. Emotion labor researchers often describe posed smiles as "surface acting", an act of feigning required emotional displays without changing internal states. Surface acting is often (imperfectly) likened to the notion of "expressive suppression" from research on basic emotion regulation strategies [e.g., @gross1998]. Relative to strategies that involve re-interpreting negative thoughts (i.e., cognitive reappraisal) to genuinely feel and express required emotions, expressive suppression strategies are generally characterized as inferior [@webb2012], counterproductive [@fernandes2021], and regulatorily costly in terms of decreases in well-being [@dryman2018; @hu2014; @yu2023], social outcomes [@chervonsky2017], and cognitive performance [@roche2018; @zhu2021]. Combined, this provides emotion labor researchers with both a theoretical and empirical rationale for warning against "pretending to be happy" [@cherry2014].
+
+When two scientific perspectives compete, it is not uncommon for one camp to fail to recognize each other's epistemic standards or legitimacy [@galison1997]. In the context of smiling and happiness, some researchers may be tempted to dismiss the emotion labor perspective altogether due to internal validity concerns. For context, emotion labor researchers have documented a large number of negative correlations between smiling and indicators of happiness, often in real-world work contexts [@boemo2022; @fernandes2021; @hulsheger2011; @visted2018]. However, there are many confounds to consider. For example, negative correlations may be "due to the stressful situation that triggers negative emotions" requiring people to regulate their emotion expressions [@zapf2021, p. 165] -- not the actual act of posing a smile. This could also potentially explain why researchers in a different theoretical tradition, emotion embodiment, observe positive effects of posed smiles: they overwhelmingly rely on experimental methods that manipulate smiling while controlling for potential confounding variables [e.g., the emotional nature of the situation; @coles2019meta].
+
+Conversely, some researchers may be tempted to dismiss the emotion embodiment perspective over concerns about the ecological validity of their experimental settings. Experiments often bear little resemblance to real-world work conditions where people pose smiles -- i.e., the setting where such acts tend to be linked with negative emotional outcomes. For example, consider the largest experimental demonstration of the effects of posed smiles on happiness [@coles2022]. Participants were led to believe the study was focused on multi-tasking and were asked to complete a variety of movements (e.g., tapping their leg). For one of those movements, participants were asked to configure their face into a smile by following muscle-by-muscle movement instructions. Participants did indeed report improved moods after posing smiles. However, it's possible that such effects do not generalize beyond these sets of relatively artificial conditions (e.g., to real-world work contexts).
+
+## Present Work
+
+The present work is part of a Registered Report designed to evaluate why the effects of posed smiles are often observed as positive in emotion embodiment research but negative in emotion labor research [@coles2026stage1]. We considered multiple ways that these contexts differ[^1], ultimately choosing three to focus our initial inquiry: (1) the emotional contexts in which participants pose smiles, (2) the number of times they pose the smile, and (3) whether non-compliance could lead to financial penalties.
+
+[^1]: Although we limit our initial investigation to three differences between the typical emotion embodiment experiment and emotion labor context, there are several other important differences to later consider, including: the status of interacting partners and the perceived goal of posing smiles.
+
+### The Emotion Incongruence Hypothesis: Posed Smiles Do Not Improve Mood in Negative Contexts
+
+First, we considered an *emotion incongruence hypothesis*. Emotion embodiment researchers often study the effects of posed expressions in a context that is either neutral or emotionally congruent with the posed expression [e.g., positive if posing smiles; @coles2019meta]. Once again, consider the largest experimental demonstration of such effects [@coles2022]. Half of participants posed smiles while essentially staring at a blank screen, and the other half posed smiles while looking at mildly pleasant photos. However, when extending similar paradigms to a stressful context -- like being submerged in ice water -- researchers have thus far failed to find that posed smiles improve mood [@kraft2012; @luu2025; @pressman2021]. In addition to providing one explanation for discrepancies between the emotion embodiment and labor literatures, such results challenge popularized claims about the ability of facial movement manipulations to improve mood in everyday negative situations. This includes not only recommendations to "just smile", but also the neuromuscular electrical stimulation of facial musculature associated with positive expressions [@efthimiou2024smiling; @efthimiou2024happiness] or the use of Botox treatments to inhibit activation in facial musculature associated with negative expressions [@schulze2021; @wollmer2022]. (For critiques of such clinical translations, see @coles2021eyebrows and @coles2019botox.)
+
+### The Repetition Hypothesis: Posed Smiles Do Not Improve Mood When Performed Repeatedly
+
+Second, we considered a *repetition hypothesis*. According to this hypothesis, posed smiles may improve mood when performed once or twice -- e.g., in the context of a typical emotion embodiment experiment. However, such effects may disappear (and even reverse) when people pose smiles repeatedly -- e.g., in the context of a typical workplace studied by emotion embodiment surveys. Practically, such a result would highlight the importance of posing smiles in moderation. For example, rather than requiring workers to feign happiness in every interaction, worker well-being may be maximized by only asking them to do so in their most difficult interactions.
+
+### The Punishment Hypothesis: Posed Smiles Do Not Improve Mood When Performed to Avoid Punishment
+
+Third, we considered a *punishment hypothesis*: posed smiles can improve mood when performed relatively voluntarily in emotion embodiment research -- but not when done under threat of punishment (e.g., reduced tips, docked performance evaluations, or job loss) in emotion labor research. More practically, such results directly connect to conversations about eradicating emotion display requirements at work altogether [@grandey2015]. Such conversations often consider seemingly conflicting evidence from the emotion embodiment literature: that posed smiles can increase happiness in experimental contexts [e.g., @chandwani2015; @choi2015]. However, the punishment account potentially explains why these effects do not generalize to work settings: smiling isn't mood boosting when performed to avoid punishment.
+
+# Methodology
+
+In the present work, we evaluated the emotion incongruence, repetition, and punishment accounts side-by-side. To do so, we extended a paradigm used in the largest experimental demonstration of the mood-boosting effects of posed smiles [@coles2022] to include three experimentally-manipulated factors: (1) the emotional contexts in which participants pose smiles, (2) the number of times they pose the smile, and (3) whether non-compliance could lead to financial penalties.
+
+The study featured a 2 (Face Movement: pose smile, express naturally) x 2 (Emotional Context: positive, negative) x 2 (Movement Repetitions: one time, ten times) x 2 (Punishment Threat: present, absent) design, with the first factor manipulated within-subjects. These manipulations were designed to evaluate boundary conditions of the mood-boosting effect of posed smiles -- not explain *why* those conditions matter. For example, Punishment Threat may eliminate the mood-boosting effect of posed smiles because it shifts the perceived goal of the smile (to avoid financial penalty vs. appease an experimenter). But it may also eliminate the mood-boosting effect of posed smiles because it is intrinsically unpleasant. Our Registered Report focused on identifying these boundary conditions with a pre-registered and pre-vetted design, sampling plan, and analysis strategy (<https://osf.io/2suyx/?view_only=8052e16be97d4bee8f93a6fa67b02893>).
+
+## Participants and Procedures
+
+*N* = 1200 participants were recruited from Prolific: an online platform where people complete studies in exchange for payment. (See *Power Simulation* for more information.) Workers on the platform were eligible to participate if they (a) spoke English, (b) had a functioning webcam, (c) had previously completed at least 5 studies, and (d) had at least 90% of their study submissions accepted. These latter two criteria help ensure that the quality of participants' responses had been vetted by other researchers.
+
+Participants completed the online experiment via a browser-based platform, Gorilla Experiment Builder [@anwylirvine2020]. To minimize the impact of demand characteristics [@coles2025; @orne1962], participants were told the study examines "how physical multi-tasking influences mathematical speed and accuracy". For payment, participants were told that they would receive up to \$6. However, half of participants were informed that \$2 would be deducted if we did not find that they followed instructions satisfactorily during recorded segments of the study. This served as our manipulation of Punishment Threat, but all participants ultimately received full compensation (\$6). Regardless of assigned condition, participants were informed of recording and confirmed webcam functionality by submitting and confirming the playback of a short video through the survey program.
+
+During the study, participants completed four trials, all of which were conceptual replications of a large multi-lab adversarial test of facial feedback effects [@coles2022]. The first and last trial were sham tasks designed to corroborate the cover story. E.g., in the first trial, participants were asked to "place your left hand behind your head and blink your eyes once per second for 5 seconds". In the last trial, they were asked to "Tap your left leg with your right-hand index finger once per second for 5 seconds."
+
+More critically, in the second and third trials, participants were instructed to pose smiles or express themselves normally for 5 seconds. This served as our manipulation of Face Movement. Participants were shown four images of actors trained to display prototypical expressions of happiness. These images were originally compiled from the Extended Cohn-Kanade Dataset [@lucey2010] and arranged in a single 2x2 image matrix by @coles2022. Participants were asked to either (a) adopt the pictured expression, or (b) not attempt to control their face movements. Importantly, having participants view the same image matrix in both trials helped eliminate the potentially confounding effect that images of smiling people may have on emotional experience. Limiting the pose to 5 seconds helped ensure a similar duration as authentic emotional expressions [@ekman2003].
+
+During the two face movement trials, participants encountered images previously validated to elicit either a positive or negative mood [@coles2020]. This served as our manipulation of Emotional Context. For positive contexts, participants viewed images of flowers, kittens, and rainbows, arranged in a single 1 x 3 row. For negative contexts, they viewed images of inconsiderately parked vehicles, acts of theft, and animal maltreatment (also arranged in a single row). Images were displayed alongside an on-screen timer while participants completed the face movement task. While doing so, participants were recorded through their webcam, which was automatically toggled on and off by the survey program.
+
+Half of participants were randomly assigned to complete the face movement task once before proceeding to the next trial, which served as a conceptual replication of @coles2022. The other half of participants were assigned to complete the task ten times. This served as our manipulation of Repetition. Immediately after completing the face movement task (either once or ten times), participants completed a modified Discrete Emotions Questionnaire, wherein they reported the extent to which they experienced a variety of emotions during the preceding trial [1 = Not at all, 7 = An extreme amount; @harmonjones2016]. Following @coles2023artifact, we modified the questionnaire in three ways. First, to shorten length, we limited ourselves to three items per subscale. Second, we replaced the original anger items (anger, rage, mad, and pissed off) with more moderate options (e.g., irritation). Third, we limited ourselves to three emotion subscales: happiness (three averaged items: happiness, satisfaction, and enjoyment), anger (irritation, aggravation, and annoyance), and fear (alarmed, scared, fear). Multiple emotion subscales were used to obscure our interest in any specific emotional state.
+
+The key outcome-of-interest was self-reported happiness. However, we also explored effects on two other outcomes frequently discussed in the emotion labor literature: well-being and burnout. After self-reporting their emotions, participants completed measures of satisfaction with life [e.g., "In most ways my life is close to my ideal"; 1 = Strongly Disagree, 7 = Strongly Agree; @diener1985] and burnout [e.g., "To what extent to you feel hopeless"; 1 = Not at all, 7 = An extreme amount; @malachpines2005]. Afterwards, participants completed a simple filler math problem (e.g., 2 + 2 = ?). This was done to both (a) corroborate the cover story and (b) evaluate whether participants were paying attention.
+
+After completing all trials, participants self-reported their age and gender [Male, Female, Nonbinary; @garbarski2025]. Originally we planned to have participants self-report ethnicity, but this information was instead requested from the panel provider [@revesz2024] (see @tbl-deviations). Afterwards, participants were asked two questions in a funnel debriefing. First, participants were simply asked what they believe was the purpose of this study. Second, they were informed that "There are details about the purpose of this study that we have not yet told you about" and asked to guess those details. Afterwards, participants were fully debriefed.
+
+After the study was complete, we evaluated how well participants completed the face movement tasks. To do so, we originally planned to use a commercially available emotion expression recognition model, Hume AI (<https://www.hume.ai/>). Like other emotion expression recognition models, Hume AI uses computer vision to track facial landmarks (e.g., lips) associated with emotion expression (e.g., smiling) in each frame of a user-uploaded video. These features are passed through a pre-trained deep neural network to predict observer ratings of emotion [@cowen2021]. To be clear, such models can fail to accurately infer people's subjective emotional experiences in complex and/or real-world scenarios [@cross2023]. However, in relatively simple experimental contexts like ours, such models have been successfully deployed to identify non-smiling participants in an efficient and scalable manner [@coles2020; @coles2022]. In the present work, we planned to use Hume AI to generate moment-to-moment estimates of smiling-related activity using Facial Action Coding System classifications [@ekman1978]. We planned to focus on Action Unit 12 in particular (measured on a 0 -- 1 scale), which is associated with pulling the corner of the lips back towards the ear. However, we ultimately used OpenFace 2.2.0 because Hume AI deprecated their expression analysis application [@baltrusaitis2018]. 
+
+## Potential Patterns of Results
+
+As a reminder, our study deployed a 2 (Face Movement: pose smile, express naturally) x 2 (Emotional Context: positive, negative) x 2 (Movement Repetitions: one time, ten times) x 2 (Punishment threat: present, absent) design, with Face Movement manipulated within-subjects.
+
+The emotion incongruence, repetition, and punishment hypotheses all predicted a two-way interaction with Face Movement -- but differed in their proposed moderating factor. More specifically, the emotion incongruence hypothesis predicted a two-way interaction between Face Movement and Emotional Context, wherein there are only positive simple effects of Face Movement in positive contexts (@tbl-patterns). The repetition hypothesis predicted a two-way interaction between Face Movement and Movement Repetition, wherein Face Movement only has a positive simple effect when repeated once (@tbl-patterns). Last, the punishment hypothesis predicted a two-way interaction between Face Movement and Punishment, wherein there are only positive simple effects of Face Movement when there is no stated punishment for non-adherence (@tbl-patterns).
+
+```{=openxml}
+<w:p><w:pPr><w:sectPr>
+<w:pgSz w:w="12240" w:h="15840"/>
+<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>
+<w:type w:val="nextPage"/>
+</w:sectPr></w:pPr></w:p>
+```
+
+::: {#tbl-patterns}
++-------------------+----------------------+------------+----------------------+------------+------------+-------------+
+| **Factor Levels**                                     | **Hypotheses**                                 | **Results** |
++-------------------+----------------------+------------+----------------------+------------+------------+-------------+
+| Emotional Context | Movement Repetitions | Punishment | Emotion Incongruence | Repetition | Punishment |             |
++:=================:+:====================:+:==========:+:====================:+:==========:+:==========:+:===========:+
+| positive          | one                  | no         | \+                   | \+         | \+         |             |
++-------------------+----------------------+------------+----------------------+------------+------------+-------------+
+|                   |                      | yes        | \+                   | \+         |            | \-          |
++-------------------+----------------------+------------+----------------------+------------+------------+-------------+
+|                   | ten                  | no         | \+                   |            | \+         | \-          |
++-------------------+----------------------+------------+----------------------+------------+------------+-------------+
+|                   |                      | yes        | \+                   |            |            | \-          |
++-------------------+----------------------+------------+----------------------+------------+------------+-------------+
+| negative          | one                  | no         |                      | \+         | \+         | \+          |
++-------------------+----------------------+------------+----------------------+------------+------------+-------------+
+|                   |                      | yes        |                      | \+         |            | \+          |
++-------------------+----------------------+------------+----------------------+------------+------------+-------------+
+|                   | ten                  | no         |                      |            | \+         | \+          |
++-------------------+----------------------+------------+----------------------+------------+------------+-------------+
+|                   |                      | yes        |                      |            |            |             |
++-------------------+----------------------+------------+----------------------+------------+------------+-------------+
+
+Overview of hypothesized patterns and observed results when examining the simple effects of Face Movement in a 2 (Face Movement: pose smile, express naturally) x 2 (Movement Repetitions: one time, ten times) x 2 (Emotional Context: positive, negative) x 2 (Punishment threat: present, absent) design. For each joint condition of Factors (e.g., one movement repetition, positive context, with the potential for punishment), +'s and -'s denote positive and negative effect of Face Movement on self-reported happiness, respectively. Blank cells denote a hypothesized null effect. Potential patterns are shown separately for the emotion incongruence, repetition, and punishment hypotheses.
+:::
+
+```{=openxml}
+<w:p><w:pPr><w:sectPr>
+<w:pgSz w:w="15840" w:h="12240" w:orient="landscape"/>
+<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>
+<w:type w:val="nextPage"/>
+</w:sectPr></w:pPr></w:p>
+```
+
+## Primary Analyses
+
+Because observations are nested within participants, we fit a multi-level model using the lme4 R package [@bates2015]. Happiness reports were modeled with (a) Face Movement, Movement Repetitions, Emotional Context, and Punishment entered as effect-coded factors, (b) all higher-order interactions, and (c) random intercepts for participants.
+
+Using the lmerTest R package [@kuznetsova2017], we tested the significance of main effects and higher-order interactions via ANOVA-style tests with Satterthwaite degrees of freedom. Face Movement was expected to interact with Emotional Context (emotion incongruence hypothesis), Movement Repetition (repetition hypothesis), or Punishment (punishment hypothesis). Regardless of the significance of these two-way interactions, we estimated the simple effects of Face Movement within each crossed level of Emotional Context, Movement Repetition, and Punishment using the emmeans R package [@lenth2025]. Analyses focused on the statistical significance of modeled higher-order interactions and simple effects (α = .05). However, Bayes factors were also computed using the BayesFactor R package using default priors on the alternative hypotheses and the default Markov chain Monte Carlo settings [@morey2024].
+
+To avoid potential concerns with post-treatment estimation bias, all data were included in initial confirmatory analyses [@rohrer2024; @mathur2025]. However, we conducted additional sensitivity analyses excluding participants who (1) did not complete the entire study, (2) incorrectly answered at least one math question, (3) correctly identified the purpose of the study (according to coders), or (4) did not exhibit at least a moderate increase (0.3 or above) in Action Unit 12 activity during the happy posing trials (according to Hume AI). Two undergraduate research assistants independently reviewed participants' open-ended responses to funnel debriefings to determine whether they were aware of the true purpose of the study. Participants were removed if one of two coders indicated that they were aware of the true purpose (to examine factors that moderate the effect of posed smiles on mood).
+
+## Exploratory Analyses
+
+Regardless of if/when posed smiles increase happiness, it is possible that there are regulatory costs for general burnout and subjective well-being. Although outside the primary scope of our investigation, we evaluated such questions by refitting the same model described above for self-reported burnout and subjective well-being.
+
+## Power Simulation
+
+Power analysis was performed via Monte Carlo simulation, wherein across multiple iterations (1) data were simulated from multi-level models configured according to hypothesized patterns, (2) pre-registered models were fit on simulated data, and (3) power was estimated as the proportion of iterations wherein pre-registered models were statistically significant [@arend2019].
+
+As shown in @tbl-patterns, all hypotheses involved a two-way interaction between Face Movement and a specific moderator, wherein the simple effects of Face Movement was positive in four conditions and null in four other conditions. To simulate expected data structure, we used a conceptually identical subset of data from the largest experimental demonstration of facial feedback effects [@coles2022]. Four conditions simulated the recovery of the effect observed in the original study (d = 0.50), whereas the other four simulated non-replication (d = 0.00). Regardless of which four conditions recovered the effect, results indicated that n = 1200 participants would provide over 95% power to detect both (a) any hypothesized two-way interaction, as well as (b) any hypothesized simple effect. This sample size also affords over 95% power to detect non-hypothesized patterns of results, such as a three-way interaction wherein the simple effects of Face Movement are positive in two conditions and null in six other conditions.
+
+## Ethics Statement
+
+All procedures were approved by the University of Florida Institutional Review Board (IRB-02; Protocol #IRB202500134).
+
+{{< pagebreak >}}
+
+::: {#tbl-deviations}
++--------------------------+--------------------------+--------------------------+
+| **Agreed Method**        | **Deviation**            | **Reason**               |
++:=========================+:=========================+:=========================+
+| Participants would       | Participant ethnicity    | Reduce participant       |
+| self-report ethnicity    | data provided by panel   | burden                   |
+|                          | provider                 |                          |
++--------------------------+--------------------------+--------------------------+
+| Use HumeAI for facial    | Used OpenFace 2.2.0 for  | HumeAI deprecated their  |
+| expression analysis      | facial expression        | expression analysis      |
+|                          | analysis                 | application              |
++--------------------------+--------------------------+--------------------------+
+
+Deviations from methodology reviewed and approved at Stage 1.
+:::
+
+{{< pagebreak >}}
+
+# Results
+
+In total, we collected data from *N* = `r n_total` participants (age *M* = `r num(age_m)`; *SD* = `r num(age_sd)`; `r num(gender_pct["Male"], 1)`% Male, `r num(gender_pct["Female"], 1)`% Female, `r num(gender_pct["Other"], 1)`% Other; `r num(ethnicity_pct["White"], 1)`% White, `r num(ethnicity_pct["Black"], 1)`% Black, `r num(ethnicity_pct["Mixed"], 1)`% Mixed, `r num(ethnicity_pct["Asian"], 1)`% Asian, `r num(ethnicity_pct["Other"], 1)`% Other). As expected, our manipulations produced the conditions necessary for testing our hypotheses. Participants expressed more happiness when asked to pose smiles (*M* = `r num(au12_desc$smile_m)`, *SD* = `r num(au12_desc$smile_sd)`) vs. express themselves naturally (*M* = `r num(au12_desc$natural_m)`, *SD* = `r num(au12_desc$natural_sd)`; Face Movement *t*(`r au12_test$parameter`) = `r num(au12_test$statistic)`, *p* `r fmt_p(au12_test$p.value)`, BF~10~ `r fmt_bf(au12_bf)`). Also as expected, participants reported more happiness after being exposed to positive (*M* = `r num(happy_positive$M)`, *SD* = `r num(happy_positive$SD)`) vs. negative images (*M* = `r num(happy_negative$M)`, *SD* = `r num(happy_negative$SD)`; Emotional Context *F*(`r anova_context$NumDF`, `r round(anova_context$DenDF)`) = `r num(anova_context$F_value)`, *p* `r fmt_p(anova_context$p_value)`, BF~10~ `r fmt_bf(anova_context$BF10)`).
+
+What wasn't expected was the pattern of results for our primary analyses. For self-reported happiness, we uncovered a three-way interaction between Face Movement, Movement Repetition, and Emotional Context, *F*(`r anova_three_way$NumDF`, `r round(anova_three_way$DenDF)`) = `r num(anova_three_way$F_value)`, *p* `r fmt_p(anova_three_way$p_value)`, BF~10~ `r fmt_bf(anova_three_way$BF10)`. As we describe below, these results ultimately did not support any one of our tested hypotheses.
+
+Our tested hypotheses were more strongly refuted in the positive emotional context condition, where participants were exposed to happy images while completing the facial movement tasks. As a reminder, in positive contexts, we considered that posed smiles may (a) only improve mood when performed once, (b) only improve mood when performed relatively voluntarily, or (c) improve mood in all the aforementioned conditions. (See @tbl-patterns for more information on these repetition, punishment, and emotion incongruence hypotheses, respectively.) Contrary to each of these hypotheses, we found that posing a voluntary smile in an already unambiguously positive context led to virtually no shift in self-reported happiness (*t*(`r round(pos_one_free$df)`) = `r num(pos_one_free$t.ratio)`, *p* `r fmt_p(pos_one_free$p.value)`, *d* = `r num(pos_one_free$estimate)`, 95% CI \[`r num(pos_one_free$ci_low)`, `r num(pos_one_free$ci_high)`\], BF~10~ `r fmt_bf(pos_one_free$BF10)`; @fig-happy). Furthermore, when asked to complete the task repeatedly or under threat of punishment, posing smiles in already positive contexts led to *decreases* in self-reported happiness (all *t* \< `r bound_max(pos_other$t.ratio)`, all *d* \< `r bound_max(pos_other$estimate)`, all *p* \< .05, all BF~10~ \> `r bound_min(pos_other$BF10)`; @fig-happy).
+
+In negative emotional contexts, posing a single smile led to small improvements in self-reported happiness. This occurred regardless of whether smiles were posed voluntarily (*t*(`r round(neg_one_free$df)`) = `r num(neg_one_free$t.ratio)`, *p* `r fmt_p(neg_one_free$p.value)`, *d* = `r num(neg_one_free$estimate)`, 95% CI \[`r num(neg_one_free$ci_low)`, `r num(neg_one_free$ci_high)`\], BF~10~ `r fmt_bf(neg_one_free$BF10)`) or under threat of punishment (*t*(`r round(neg_one_threat$df)`) = `r num(neg_one_threat$t.ratio)`, *p* `r fmt_p(neg_one_threat$p.value)`, *d* = `r num(neg_one_threat$estimate)`, 95% CI \[`r num(neg_one_threat$ci_low)`, `r num(neg_one_threat$ci_high)`\], BF~10~ `r fmt_bf(neg_one_threat$BF10)`). When repeated 10 times, however, posing smiles in negative contexts led to virtually no shift in self-reported happiness (regardless of punishment; all *t* \< `r bound_max(neg_ten$t.ratio)`, all *p* \> `r drop_zero(bound_min(neg_ten$p.value, 3))`, all *d* \< `r bound_max(neg_ten$estimate)`, all BF~10~ \< `r bound_max(neg_ten$BF10)`; @fig-happy).
+
+{{< pagebreak >}}
+
+![Primary results. Differences in self-reported happiness after participants posed happy vs. natural expressions (y-axis). Points represent the estimated marginal mean and error bars represent 95% confidence intervals. Results are visualized separately for each combination of the three experimentally manipulated factors (denoted by x-axis and legend).](../figures/smile25b_happy_plot.jpg){#fig-happy}
+
+{{< pagebreak >}}
+
+## Exploratory Results
+
+Although outside our primary scope, we also examined whether posed smiles impacted self-reported burnout and subjective well-being. Across every tested condition, we uncovered little-to-no evidence of such effects (Figure 2A, 2B; all *t* \< `r bound_max(wellbeing$t.ratio)`, all *d* \< `r bound_max(wellbeing$estimate)`, all *p* \> `r drop_zero(bound_min(wellbeing$p.value, 3))`, all BF~10~ \< `r bound_max(wellbeing$BF10)`).
+
+We additionally examined self-reported fear and anger -- measures initially included to distract participants from our interest in happiness. For fear, we found some evidence of decreases among participants who posed 10 consecutive smiles in negative contexts (all *t* \< `r bound_max(fear_neg_ten$t.ratio)`, all *d* \< `r bound_max(fear_neg_ten$estimate)`, all *p* \< `r drop_zero(bound_max(fear_neg_ten$p.value, 3))`; Figure 2C). Bayesian analyses, however, were inconclusive (BF~10~ \> `r bound_min(fear_neg_ten$BF10)`). For anger, results were more conclusive (Figure 2D). In negative contexts, posing smiles led to little-to-no shift in self-reported anger (all *t* \< `r bound_max(anger_negative$t.ratio)`, all *d* \< `r bound_max(anger_negative$estimate)`, all *p* \> `r drop_zero(bound_min(anger_negative$p.value, 3))`, all BF~10~ \< `r bound_max(anger_negative$BF10)`). In positive contexts, however, posing smiles consistently increased anger. This occurred regardless of whether participants posed smiles (a) once and voluntarily (*t*(`r round(anger_pos_one_free$df)`) = `r num(anger_pos_one_free$t.ratio)`, *d* = `r num(anger_pos_one_free$estimate)`, *p* `r fmt_p(anger_pos_one_free$p.value)`, BF~10~ `r fmt_bf(anger_pos_one_free$BF10)`) vs. (b) ten times under threat of punishment (*t*(`r round(anger_pos_ten_threat$df)`) = `r num(anger_pos_ten_threat$t.ratio)`, *d* = `r num(anger_pos_ten_threat$estimate)`, *p* `r fmt_p(anger_pos_ten_threat$p.value)`, BF~10~ `r fmt_bf(anger_pos_ten_threat$BF10)`).
+
+{{< pagebreak >}}
+
+![Secondary results. Differences in self-reported satisfaction with life (panel A), burnout (panel B), fear (panel C), and anger (panel D) after participants posed happy vs. natural expressions (y-axis). Points represent the estimated marginal mean and error bars represent 95% confidence intervals. Results are visualized separately for each combination of the three experimentally manipulated factors (denoted by x-axis and legend).](../figures/smile25b_combined_secondary_plot.jpg){#fig-secondary}
+
+{{< pagebreak >}}
+
+# Discussion
+
+Researchers and lay people alike have long debated whether posing smiles makes people feel happy or miserable. The emotion embodiment literature provides a theoretical justification for suggesting that people would feel happier if they would "just smile" [@cole1954]. However, the emotion labor literature provides justification for warning against "pretending to be happy" [@cherry2014] --- often identifying decreases in work-related mood, well-being, and burnout. In the present work, we hypothesized that each literature captures incomplete perspectives, proposing three hypotheses for why smiles sometimes increase and other times decrease happiness. Ultimately, our results did lend support to both theoretical camps --- but in a manner that did not support any one of our tested hypotheses.
+
+Respectively, we tested an emotion incongruence, repetition, and punishment hypothesis that predicted posed smiles would only increase happiness when completed (a) in positive contexts, (b) non-repeatedly, or (c) voluntarily. Our results, instead, generated an unexpected narrative. In positive contexts, posed smiles were mood-dampening; in negative contexts, they were mood-improving when performed non-repeatedly (@tbl-patterns).
+
+We observed the strongest support for emotion embodiment theory in negative contexts [@barrett2017; @cacioppo1992; @damasio2013; @feldman2024; @niedenthal2007; @james1884; @james1894; @scherer2019; @tomkins1962; @wood2016]. Here, posing a single smile led to small improvements in self-reported happiness, regardless of whether it was done voluntarily or to avoid financial punishment. The magnitudes of these effects were similar to those of a past meta-analysis [@coles2019meta] and a large-scale adversarial collaboration [@coles2022]. However, when performed repeatedly, the effect was near zero [see also @kraft2012; @luu2025; @pressman2021]. Furthermore, we observed far stronger *deleterious* effects on mood when people posed smiles in positive contexts.
+
+We observed the strongest support for emotion labor theories in positive contexts [@boemo2022; @fernandes2021; @hulsheger2011; @visted2018; @zapf2021]. Here, relative to expressing oneself naturally, posed smiles consistently led to *decreases* in self-reported happiness. This was particularly pronounced when posing smiles repeatedly and/or under financial threat --- i.e., the conditions that best match real-world emotion labor conditions. Furthermore, the mood-dampening effects of smiling in positive contexts were substantially larger than the mood-boosting effects observed in negative contexts. This finding helps resolve theoretical tension between emotion embodiment and labor theories: the small mood-boosting effects we observed in some experimental contexts were canceled out by larger mood-dampening effects observed in contexts better resembling emotion labor.
+
+## Limitations
+
+Throughout the course of our research, we navigated several technical and conceptual challenges. At the technical level, we made two deviations from our pre-registered plan (see @tbl-deviations). First, we extracted data on participant ethnicity from the panel provider as opposed to the participant. This was done to reduce participant burden. Second, we used OpenFace 2.2.0 instead of HumeAI for facial expression analysis [@baltrusaitis2018]. This was done because HumeAI deprecated their expression analysis application before we completed our project (June, 2026).
+
+Conceptually, our most difficult challenge was developing a paradigm that would connect the emotion embodiment and emotion labor research traditions. We borrowed a paradigm from one of the largest experiments on emotion embodiment [@coles2022]. However, we had to introduce changes to better match emotion labor conditions. The most critical change may have been to their control condition. @coles2022 had participants pose neutral expressions. However, posing neutral expressions in non-neutral contexts is arguably a form of emotion labor. We thus asked participants to express themselves naturally in the control condition. Participants still expressed more happiness when asked to pose happy expressions, but the change to the control condition may have introduced confounds oft avoided in emotion embodiment research. For example, expressing yourself naturally may be more difficult and annoying than controlling one's facial expressions. @coles2022 helped control for such confounding by having participants complete different facial poses and tasks. However, although affording more internal validity for detecting emotion embodiment effects, we argue such conditions would have provided less ecologically valid tests of emotion labor dynamics.
+
+Last, we note that participants often posed relatively weak, non-prototypical expressions of happiness across a single session. Many emotion embodiment theorists argue that facial movements only influence mood when they match prototypical expressions of emotion [@hager1981; @tomkins1981; @matsumoto1987; @levenson1992; @ekman1993]. However, only `r num(compliance_pct, 1)`% of our sample posed smiles whose intensity exceeded our initial stated threshold. Fortunately, similar results were observed regardless of inclusion criteria (see *SI*) -- suggesting that posed expressions do not necessarily need to be prototypical in order to influence mood [see also @coles2022; @coles2023artifact]. Similarly, many emotion labor theorists explicitly describe the burden of emotion labor performed over long periods of time [e.g., @hochschild1979]. In the span of a short experiment, we did not find that repeated demands to pose smiles led to substantial differences in burnout and well-being. However, when repeated for days, weeks, or even years, it does not strike us as implausible that such effects could indeed robustly emerge.
+
+## Concluding Remarks
+
+Although often framed as competing hypotheses, our results ultimately illustrate that there is a duality of posed smiles. In some contexts, posed smiles can be the source of our happiness -- in others, a far more powerful source of our misery.\
+
+# Funding
+
+This research did not receive any specific grant from funding agencies in the public, commercial, or not-for-profit sectors.
+
+# Data Availability
+
+The data, analysis code, and study materials that support these findings are available at <https://github.com/Social-Science-Collaboratory/smile_sharing>. Participants' video recordings are not included, as they were destroyed following facial expression analysis in accordance with the consent agreement.
+
+{{< pagebreak >}}
+
+# References
+
+::: {#refs}
+:::

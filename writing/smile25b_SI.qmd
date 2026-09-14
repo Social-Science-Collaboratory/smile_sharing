@@ -1,0 +1,129 @@
+---
+title: "Supplemental Materials: Smiling your way to happiness or misery? Experimental tests of competing perspectives"
+shorttitle: "Supplement: Smiling and happiness"
+suppress-abstract: true
+suppress-keywords: true
+bibliography: references.bib
+floatsintext: true
+numbered-lines: false
+mask: false
+draft-date: false
+meta-analysis: false
+format:
+  apaquarto-docx: default
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+library(tidyverse)
+library(knitr)
+
+# Read processed data and the pairwise-comparison object exported by the main analysis script
+df <- read_csv("../data/smile25b_processed_data.csv", show_col_types = FALSE)
+happy_simple <- readRDS("../data/main_analysis/smile25b_happy_results_simple.Rds")
+
+# Reporting helpers (mirrors smile25b_writing.qmd's setup chunk)
+num <- function(x, digits = 2) formatC(x, format = "f", digits = digits)
+
+fmt_bf <- function(bf) {
+  ifelse(bf > 100, "> 100", num(bf))
+}
+
+p_stars <- function(p) {
+  case_when(
+    p < .001 ~ "***",
+    p < .01  ~ "**",
+    p < .05  ~ "*",
+    TRUE     ~ ""
+  )
+}
+
+# Cell sizes: context x threat x repetition is a between-subjects grouping,
+# so the same N applies to both the smile and natural pose scores within a cell
+n_cell <- df %>%
+  count(context, threat, repetition, name = "N")
+
+# Exclusion cascade for the sensitivity analyses, applied in the same order as
+# smile25b_supp_analysis.R. Each count is taken among the participants still
+# remaining at that step; percentages are of the total sample.
+n_total   <- nrow(df)
+pct_total <- function(n) num(n / n_total * 100, 0)
+
+## (1) Filler math problems
+excl_math_n <- sum(df$math_errors != 0)
+after_math  <- df %>% filter(math_errors == 0)
+
+## (2) Awareness of the study hypothesis, among those still remaining
+excl_aware_n <- sum(after_math$joint_awareness_check != FALSE)
+after_aware  <- after_math %>% filter(joint_awareness_check == FALSE)
+
+## (3) AU12 smiling activity, among those still remaining. Both cutoffs also
+## require OpenFace to have detected a face in >80% of frames in both posing
+## trials, so participants with no usable video are counted as exclusions here.
+au12_kept <- function(delta) {
+  sum(
+    (after_aware$AU12_scalar_smile - after_aware$AU12_scalar_natura >= delta) &
+      after_aware$face_detection_natura > 0.8 &
+      after_aware$face_detection_smile > 0.8,
+    na.rm = TRUE
+  )
+}
+
+n_sens_hard      <- au12_kept(1.5)
+excl_au12_hard_n <- nrow(after_aware) - n_sens_hard
+
+n_sens_soft      <- au12_kept(0.5)
+excl_au12_soft_n <- nrow(after_aware) - n_sens_soft
+
+si_table1 <- happy_simple %>%
+  left_join(n_cell, by = c("context", "threat", "repetition")) %>%
+  mutate(
+    ci_low  = estimate - qt(.975, df) * SE,
+    ci_high = estimate + qt(.975, df) * SE,
+    `Emotional Context`     = context,
+    `Movement Repetitions`  = repetition,
+    Punishment              = if_else(threat == "Threat", "yes", "no"),
+    `95% CI`                = paste0("[", num(ci_low), ", ", num(ci_high), "]"),
+    EMM                     = num(estimate),
+    p                       = p_stars(p.value),
+    `BF~10~`                = fmt_bf(BF10),
+    .context_order    = factor(context, levels = c("positive", "negative")),
+    .repetition_order = factor(repetition, levels = c("one", "ten")),
+    .threat_order      = factor(threat, levels = c("No threat", "Threat"))
+  ) %>%
+  arrange(.context_order, .repetition_order, .threat_order) %>%
+  select(`Emotional Context`, `Movement Repetitions`, Punishment, N, EMM, `95% CI`, p, `BF~10~`)
+```
+
+In addition to the overview in the main manuscript, Table S1 contains pairwise comparisons of self-reported happiness after participants posed smiles vs. expressed themselves naturally. 
+
+**Table S1**
+
+*Pairwise Comparisons of Posed Smiles vs. Natural Expressions on Self-Reported Happiness*
+
+```{r}
+#| label: si1-output
+#| echo: false
+
+kable(
+  si_table1,
+  align = c("l", "l", "l", "r", "r", "c", "c", "r")
+)
+```
+
+*Note.* EMM = estimated marginal mean of the pose difference (smile − natural), derived
+from `emmeans` pairwise comparisons. CI = confidence interval. BF~10~ = Bayes factor for
+the alternative hypothesis (a pose difference) over the null. \* *p* < .05. \*\* *p* <
+.01. \*\*\* *p* < .001.
+
+Supplemental Figure 1 provides an overview of our sensitivity analyses. Across all sensitivity analyses, we excluded (1) *n* = `r excl_math_n` (`r pct_total(excl_math_n)`% of total sample) participants for failing to correctly answer filler math problems, and (2) *n* = `r excl_aware_n` (`r pct_total(excl_aware_n)`% of total sample) participants for exhibiting some awareness of the study hypothesis. In addition, we excluded participants who did not exhibit sufficient levels of smiling activity during the happy posing trials. Using Facial Action Coding System classifications, this was operationalized as Action Unit 12 activity, which is associated with pulling the corner of the lips back towards the ear. 
+
+For facial expression analysis, we initially planned a moderate cutoff: 1.5 / 5.^[As a reminder, we switched from Hume AI to OpenFace 2.2.0 because the former deprecated their expression analysis application before we completed our study. Because Hume AI (0-1) and OpenFace (0-5) have different scaling, we adjusted our initial .3/1 cutoff to 1.5/5.] This led to an unexpectedly large number of exclusions (*n* = `r excl_au12_hard_n`; `r pct_total(excl_au12_hard_n)`% of total sample). We thus conducted an additional sensitivity analysis with a less stringent cutoff of 0.5/5 (*n* = `r excl_au12_soft_n` excluded; `r pct_total(excl_au12_soft_n)`% of total sample).
+
+As shown in Supplemental Figure 1, Panel B, our main results replicated when using a less stringent cutoff. When using a more stringent cutoff, patterns were numerically similar (Supplemental Figure 1, Panel C). However, the mood-boosting effects of voluntarily posing smiles in negative contexts were no longer statistically significant.
+
+# Supplemental Figure 1
+
+![Fig S1. Results from full sample (Panel A), sensitivity analyses wherein participants were only required to pose weak smiles (Panel B), and sensitivity analyses wherein participants were required to pose strong smiles (Panel C). Y-axis denotes differences in self-reported happiness after participants posed happy vs. neutral expressions. Points represent the estimated marginal mean and error bars represent 95% confidence intervals. Results are visualized separately for each combination of the three experimentally manipulated factors (denoted by x-axis and legend).](../figures/smile25b_sens_plot.jpg){#fig-si1}
