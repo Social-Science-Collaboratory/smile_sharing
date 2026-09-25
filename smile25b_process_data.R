@@ -3,6 +3,7 @@ library(tidyverse)
 
 # Initial processing:
 # - compile questionnaires
+# - record the sample flow (completed, consented, and declined data use)
 # - remove participants who did not consent to data sharing
 # - Merge Prolific demographic data
 # - remove identifying information (Prolific participant and submission IDs)
@@ -34,6 +35,18 @@ no_consent_list <- df %>%
   filter(`Data_consent object-14 Response` == "No, I do not want my data used in the research.") %>%
   select(`Participant Private ID`) %>%
   rename(Gorilla_ID = `Participant Private ID`)
+
+## Record the sample flow before removing non-consenting participants, since no
+## shared data file retains the participants who declined data use
+sample_flow <- df %>%
+  filter(!is.na(`Data_consent object-14 Response`)) %>%
+  distinct(`Participant Private ID`, `Data_consent object-14 Response`) %>%
+  summarise(
+    n_completed = n(),
+    n_consented = sum(`Data_consent object-14 Response` == "Yes, you may use my data in the research."),
+    n_declined = sum(`Data_consent object-14 Response` == "No, I do not want my data used in the research.")
+  )
+write_csv(sample_flow, "data/smile25b_sample_flow.csv")
 
 ## Remove all rows with non-consenting participant IDs
 df <- df %>%
@@ -70,7 +83,7 @@ df <- df %>%
   select(-`Participant External Session ID`)
 
 # Clean workspace
-rm(no_consent_list, demo_data)
+rm(no_consent_list, demo_data, sample_flow)
 
 # Save raw data
 write_csv(df, "data/smile25b_raw_data.csv")

@@ -2,8 +2,9 @@
 
 Data, code, materials, and manuscript for a Stage 2 Registered Report testing whether posed
 smiles improve or worsen mood depending on emotional context, repetition, and threat of
-punishment. *N* = 1,174 participants completed a 2 (Face Movement) x 2 (Emotional Context)
-x 2 (Movement Repetitions) x 2 (Punishment Threat) experiment online.
+punishment. *N* = 1,201 participants completed a 2 (Face Movement) x 2 (Emotional Context)
+x 2 (Movement Repetitions) x 2 (Punishment Threat) experiment online, of whom 1,174
+consented to the use of their data.
 
 The design, sampling plan, and analysis strategy were reviewed and approved at Stage 1
 before data collection began.
@@ -16,8 +17,8 @@ Run in this order from the repository root:
 |---|---|---|
 | 1 | `smile25b_run_openface.R` | **No** — needs the videos (destroyed) and a local OpenFace install |
 | 2 | `smile25b_compile_openface.R` | **No** — needs per-frame OpenFace output and the Gorilla exports |
-| 3 | `smile25b_process_data.R` (lines 1–76) | **No** — needs the Gorilla and panel-provider exports |
-| 4 | `smile25b_process_data.R` (lines 79+) | Yes — reads `data/smile25b_raw_data.csv` |
+| 3 | `smile25b_process_data.R` (lines 1–89) | **No** — needs the Gorilla and panel-provider exports |
+| 4 | `smile25b_process_data.R` (lines 91+) | Yes — reads `data/smile25b_raw_data.csv` |
 | 5 | `smile25b_main_analysis.R` | Yes |
 | 6 | `smile25b_secondary_analysis.R` | Yes |
 | 7 | `smile25b_supp_analysis.R` | Yes |
@@ -36,7 +37,8 @@ participant video or the identifier-bearing source exports.
 - **`data/gorilla_survey/`.** Holds the raw platform exports, which carry panel-provider
   identifiers. Not shareable.
 - **Non-consenting participants.** 27 participants declined use of their data at debriefing.
-  They are absent from every file here.
+  They are absent from every file here; `data/smile25b_sample_flow.csv` records only how
+  many there were.
 
 ## Repository structure
 
