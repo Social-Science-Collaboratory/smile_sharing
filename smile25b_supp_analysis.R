@@ -116,8 +116,7 @@ summary(happy_sens_emm_summary)
 
 # Draw the happiness score with the custom function 'draw_plot' (Panel C: strong smile required)
 panel_c <- draw_plot(
-  df_wide = df_sens_wide,
-  outcome = "DEQ_happy_total",
+  simple_effects = happy_sens_emm_pairs,
   outcome_label = "happiness",
   legend_position = "top_right",
   x_axis = TRUE,
@@ -280,8 +279,7 @@ summary(happy_sens_soft_emm_summary)
 
 # Draw the happiness score with the custom function 'draw_plot' (Panel B: weak smile required)
 panel_b <- draw_plot(
-  df_wide = df_sens_soft_wide,
-  outcome = "DEQ_happy_total",
+  simple_effects = happy_sens_soft_emm_pairs,
   outcome_label = "happiness",
   legend_position = "none",
   x_axis = TRUE,
@@ -300,10 +298,10 @@ panel_b <- draw_plot(
   )
 
 # Draw the full sample with the custom function 'draw_plot' (Panel A), on the
-# same y-axis breaks as the two sensitivity panels so the row is comparable
+# same y-axis breaks as the two sensitivity panels so the row is comparable.
+# Uses the simple effects saved by smile25b_main_analysis.R, so it matches Figure 1
 panel_a <- draw_plot(
-  df_wide = df,
-  outcome = "DEQ_happy_total",
+  simple_effects = readRDS("data/main_analysis/smile25b_happy_results_simple.Rds"),
   outcome_label = "happiness",
   legend_position = "none",
   x_axis = TRUE,

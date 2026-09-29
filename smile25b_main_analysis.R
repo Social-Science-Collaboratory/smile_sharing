@@ -146,8 +146,7 @@ summary(happy_emm_summary)
 
 # Draw the happiness score with the custom function 'draw_plot'
 happy_plot <- draw_plot(
-  df_wide = df,
-  outcome = "DEQ_happy_total",
+  simple_effects = happy_emm_pairs,
   outcome_label = "happiness",
   legend_position = "top_right",
   x_axis = TRUE,

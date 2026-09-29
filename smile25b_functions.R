@@ -1,10 +1,10 @@
-# Function: Prepare the per-participant smile - natural difference scores, used to
-# draw the point estimate + error bar plot (positive = smiling increased the outcome)
+# Function: Draw the model-estimated smile - natural differences (emmeans simple
+# effects) with 95% CIs, the same values reported in the manuscript
+# (positive = smiling increased the outcome)
 
 draw_plot <- function(
-  df_wide,
+  simple_effects,
   outcome_label,
-  outcome,
   legend_position = c("top_right", "bottom_right", "none"),
   x_axis = TRUE,
   y_axis = TRUE,
@@ -15,10 +15,6 @@ draw_plot <- function(
 
   # Set the y-axis range from the outermost hard-coded breaks
   y_limits <- range(y_breaks)
-
-  # Set Smile pose and Natural pose outcome variable names
-  SP_outcome <- paste0("SP_", outcome)
-  NP_outcome <- paste0("NP_", outcome)
 
   # Set plot colors: blue = positive, reddish-orange = negative
   color_positive <- "#0055c4"
@@ -32,10 +28,7 @@ draw_plot <- function(
   context_dodge <- position_dodge(width = 0.6)
 
 
-  plot_data <- df_wide %>%
-    select(context, threat, repetition, all_of(SP_outcome), all_of(NP_outcome)) %>%
-    drop_na(context, threat, repetition, all_of(SP_outcome), all_of(NP_outcome)) %>%
-    mutate(diff = .data[[SP_outcome]] - .data[[NP_outcome]]) %>%
+  plot_data <- simple_effects %>%
     mutate(
       # x-axis grouping: Context (ordered, drives color)
       context_label = factor(str_to_title(context), levels = c("Negative", "Positive")),
@@ -47,20 +40,12 @@ draw_plot <- function(
       threat_label = factor(
         str_to_title(threat),
         levels = c("No Threat", "Threat")
-      )
-    ) %>%
-    # Group by the condition combinations
-    group_by(context_label, repetition_label, threat_label) %>%
-    # Calculate mean and standard error
-    summarise(
-      diff_mean = mean(diff),
-      SE = sd(diff) / sqrt(n()),
-      .groups = "drop"
-    ) %>%
-    mutate(
+      ),
+      # Point estimate: the smile - natural difference from the model
+      diff_mean = estimate,
       # calculate error bar limits on the y-axis (95% confidence interval)
-      error_min = diff_mean - 1.96 * SE,
-      error_max = diff_mean + 1.96 * SE
+      error_min = estimate - qt(.975, df) * SE,
+      error_max = estimate + qt(.975, df) * SE
     )
 
   # Prepare pose effect direction labels that indicate the direction of the pose effect

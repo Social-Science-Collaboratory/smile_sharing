@@ -90,8 +90,7 @@ summary(SWL_emm_summary)
 
 # Draw the SWL score with the custom function 'draw_plot'
 SWL_plot <- draw_plot(
-  df_wide = df,
-  outcome = "SWL_total",
+  simple_effects = SWL_emm_pairs,
   outcome_label = "satisfaction with life",
   legend_position = "none",
   x_axis = FALSE,
@@ -197,8 +196,7 @@ summary(Burnout_emm_summary)
 
 # Draw the Burnout score with the custom function 'draw_plot'
 Burnout_plot <- draw_plot(
-  df_wide = df,
-  outcome = "Burnout_total",
+  simple_effects = Burnout_emm_pairs,
   outcome_label = "burnout",
   legend_position = "top_right",
   x_axis = FALSE,
@@ -304,8 +302,7 @@ summary(fear_emm_summary)
 
 # Draw the Fear score with the custom function 'draw_plot'
 fear_plot <- draw_plot(
-  df_wide = df,
-  outcome = "DEQ_fear_total",
+  simple_effects = fear_emm_pairs,
   outcome_label = "fear",
   legend_position = "none",
   x_axis = TRUE,
@@ -415,8 +412,7 @@ summary(anger_emm_summary)
 
 # Draw the Anger score with the custom function 'draw_plot'
 anger_plot <- draw_plot(
-  df_wide = df,
-  outcome = "DEQ_anger_total",
+  simple_effects = anger_emm_pairs,
   outcome_label = "anger",
   legend_position = "none",
   x_axis = TRUE,
